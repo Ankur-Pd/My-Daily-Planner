@@ -35,6 +35,7 @@
   const RING_CIRCUMFERENCE = 2 * Math.PI * 30;
 
   let activeTab = "routine";
+  let viewDate = todayKey();                // date currently being viewed (defaults to today)
   let tasks = loadJSON(STORE_KEY, []);       // routine
   let extras = loadJSON(EXTRA_KEY, []);      // one-off tasks
   let editingId = null;
@@ -95,10 +96,43 @@
   // ---------- Date header ----------
 
   function renderDate() {
-    const now = new Date();
-    $("dayName").textContent = now.toLocaleDateString(undefined, { weekday: "long" });
-    $("dateFull").textContent = now.toLocaleDateString(undefined, { month: "long", day: "numeric" });
+    const d = new Date(viewDate + "T00:00:00");
+    const isToday = viewDate === todayKey();
+    $("dayName").innerHTML = d.toLocaleDateString(undefined, { weekday: "long" }) +
+      (isToday ? '<span class="today-pill">Today</span>' : "");
+    $("dateFull").textContent = d.toLocaleDateString(undefined, { month: "long", day: "numeric" });
+    $("nextDayBtn").disabled = isToday;
+    $("datePicker").value = viewDate;
   }
+
+  function shiftDay(delta) {
+    const d = new Date(viewDate + "T00:00:00");
+    d.setDate(d.getDate() + delta);
+    const next = todayKey(d);
+    viewDate = next > todayKey() ? todayKey() : next;
+    updateScoreAndStreak();
+    renderDate();
+  }
+
+  $("prevDayBtn").addEventListener("click", () => shiftDay(-1));
+  $("nextDayBtn").addEventListener("click", () => shiftDay(1));
+
+  $("calendarBtn").addEventListener("click", () => {
+    const picker = $("datePicker");
+    if (picker.showPicker) {
+      picker.showPicker();
+    } else {
+      picker.click();
+    }
+  });
+
+  $("datePicker").addEventListener("change", (e) => {
+    const picked = e.target.value;
+    if (!picked) return;
+    viewDate = picked > todayKey() ? todayKey() : picked;
+    updateScoreAndStreak();
+    renderDate();
+  });
 
   // ---------- Timeline color by time-of-day ----------
 
@@ -128,6 +162,7 @@
   function renderRoutine(log, key) {
     const doneIds = new Set((log[key] && log[key].doneIds) || []);
     const sorted = [...tasks].sort((a, b) => a.time.localeCompare(b.time));
+    const isToday = key === todayKey();
 
     timelineEl.innerHTML = "";
     emptyState.style.display = sorted.length === 0 ? "block" : "none";
@@ -168,13 +203,19 @@
       meta.innerHTML = `<span>${t.points} pts</span>` + (t.reminder ? "<span>🔔</span>" : "");
       body.appendChild(title);
       body.appendChild(meta);
-      body.addEventListener("click", () => openEditRoutine(t.id));
+      if (isToday) {
+        body.addEventListener("click", () => openEditRoutine(t.id));
+      } else {
+        body.style.cursor = "default";
+      }
       li.appendChild(body);
 
       timelineEl.appendChild(li);
     }
 
-    positionNowMarker(sorted);
+    if (isToday) positionNowMarker(sorted);
+    else nowMarker.style.display = "none";
+
     return { sorted, doneIds };
   }
 
@@ -188,14 +229,21 @@
   // ---------- Render: Tasks (one-off, carry-forward) ----------
 
   function renderTasks(key) {
-    const active = extras
-      .filter((t) => t.done ? t.doneDate === key : t.activeDate === key)
-      .sort((a, b) => {
-        if (a.done !== b.done) return a.done ? 1 : -1;
-        return (a.time || "99:99").localeCompare(b.time || "99:99");
-      });
+    const isToday = key === todayKey();
+
+    const active = isToday
+      ? extras
+          .filter((t) => t.done ? t.doneDate === key : t.activeDate === key)
+          .sort((a, b) => {
+            if (a.done !== b.done) return a.done ? 1 : -1;
+            return (a.time || "99:99").localeCompare(b.time || "99:99");
+          })
+      : extras.filter((t) => t.done && t.doneDate === key);
 
     taskListEl.innerHTML = "";
+    tasksEmptyState.textContent = isToday
+      ? "No extra tasks right now. Anything outside your routine goes here — and if it doesn't get done, it follows you to tomorrow."
+      : "Nothing completed from this list on this day.";
     tasksEmptyState.style.display = active.length === 0 ? "block" : "none";
 
     const pendingCount = extras.filter((t) => !t.done).length;
@@ -232,7 +280,8 @@
       if (overdueDays > 0) meta.innerHTML += `<span class="chip carried">Carried ${overdueDays}d</span>`;
       body.appendChild(meta);
 
-      body.addEventListener("click", () => openEditExtra(t.id));
+      if (isToday) body.addEventListener("click", () => openEditExtra(t.id));
+      else body.style.cursor = "default";
       li.appendChild(body);
 
       taskListEl.appendChild(li);
@@ -243,7 +292,8 @@
 
   function updateScoreAndStreak() {
     const log = loadLog();
-    const key = todayKey();
+    const key = viewDate;
+    const realToday = todayKey();
 
     const { sorted, doneIds } = renderRoutine(log, key);
     renderTasks(key);
@@ -251,7 +301,9 @@
     const routineTotal = sorted.reduce((s, t) => s + Number(t.points), 0);
     const routineEarned = sorted.filter((t) => doneIds.has(t.id)).reduce((s, t) => s + Number(t.points), 0);
 
-    const todaysExtras = extras.filter((t) => t.done ? t.doneDate === key : t.activeDate === key);
+    const todaysExtras = key === realToday
+      ? extras.filter((t) => t.done ? t.doneDate === key : t.activeDate === key)
+      : extras.filter((t) => t.done && t.doneDate === key);
     const extraTotal = todaysExtras.reduce((s, t) => s + Number(t.points), 0);
     const extraEarned = todaysExtras.filter((t) => t.done).reduce((s, t) => s + Number(t.points), 0);
 
@@ -262,10 +314,13 @@
     scorePct.textContent = pct + "%";
     ringFill.style.strokeDashoffset = RING_CIRCUMFERENCE - (pct / 100) * RING_CIRCUMFERENCE;
 
-    if (total > 0 && earned === total) {
+    if (key === realToday && total > 0 && earned === total) {
       markStreakDay(log, key);
     }
     updateStreakDisplay();
+
+    // Toggle FAB: adding/editing only makes sense while viewing today
+    $("addBtn").hidden = key !== realToday;
   }
 
   function markStreakDay(log, key) {
@@ -339,7 +394,7 @@
   // ---------- Toggle done ----------
 
   function toggleRoutineDone(id) {
-    const key = todayKey();
+    const key = viewDate;
     const log = loadLog();
     if (!log[key]) log[key] = { doneIds: [] };
     const set = new Set(log[key].doneIds);
@@ -589,6 +644,8 @@
     rollForwardExtras();
     updateScoreAndStreak();
   }
+
+  $("datePicker").max = todayKey();
 
   if ("serviceWorker" in navigator) {
     window.addEventListener("load", () => {

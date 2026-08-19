@@ -16,17 +16,25 @@
 <body>
 
 <header class="topbar">
-  <div class="date-block">
-    <p class="eyebrow" id="dayName">Wednesday</p>
-    <h1 id="dateFull">August 19</h1>
+  <div class="date-nav">
+    <button type="button" class="nav-arrow" id="prevDayBtn" aria-label="Previous day">‹</button>
+    <div class="date-block">
+      <p class="eyebrow" id="dayName">Wednesday</p>
+      <h1 id="dateFull">August 19</h1>
+    </div>
+    <button type="button" class="nav-arrow" id="nextDayBtn" aria-label="Next day">›</button>
   </div>
-  <div class="score-block">
-    <svg class="ring" width="72" height="72" viewBox="0 0 72 72">
-      <circle class="ring-track" cx="36" cy="36" r="30" />
-      <circle class="ring-fill" id="ringFill" cx="36" cy="36" r="30" />
-    </svg>
-    <div class="ring-label">
-      <span id="scorePct">0%</span>
+  <div class="header-right">
+    <button type="button" class="calendar-btn" id="calendarBtn" aria-label="Pick a date">📅</button>
+    <input type="date" id="datePicker" class="date-picker-hidden" aria-hidden="true" />
+    <div class="score-block">
+      <svg class="ring" width="72" height="72" viewBox="0 0 72 72">
+        <circle class="ring-track" cx="36" cy="36" r="30" />
+        <circle class="ring-fill" id="ringFill" cx="36" cy="36" r="30" />
+      </svg>
+      <div class="ring-label">
+        <span id="scorePct">0%</span>
+      </div>
     </div>
   </div>
 </header>

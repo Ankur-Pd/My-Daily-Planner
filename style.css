@@ -38,10 +38,39 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 28px 20px 16px;
+  padding: 28px 12px 16px 8px;
   background: linear-gradient(180deg, var(--ink) 0%, #2A2A55 100%);
   color: var(--paper);
   border-radius: 0 0 24px 24px;
+  gap: 8px;
+}
+
+.date-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.nav-arrow {
+  background: rgba(250, 247, 242, 0.1);
+  border: none;
+  color: var(--paper);
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.nav-arrow:disabled {
+  opacity: 0.25;
+  cursor: default;
 }
 
 .eyebrow {
@@ -50,19 +79,67 @@ body {
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: rgba(250, 247, 242, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.today-pill {
+  background: var(--dawn);
+  color: var(--ink);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 999px;
+}
+
+.date-block {
+  text-align: center;
+  min-width: 128px;
 }
 
 .date-block h1 {
   margin: 0;
   font-family: var(--font-display);
   font-weight: 600;
-  font-size: 30px;
+  font-size: 26px;
+  white-space: nowrap;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.calendar-btn {
+  background: rgba(250, 247, 242, 0.1);
+  border: none;
+  color: var(--paper);
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.date-picker-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .score-block {
   position: relative;
-  width: 72px;
-  height: 72px;
+  width: 68px;
+  height: 68px;
+  flex-shrink: 0;
 }
 
 .ring { transform: rotate(-90deg); }
