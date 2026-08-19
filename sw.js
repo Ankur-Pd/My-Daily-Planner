@@ -1,4 +1,4 @@
-const CACHE = "day-arc-v1";
+const CACHE = "day-arc-v2";
 const ASSETS = [
   "./",
   "./index.html",
@@ -26,7 +26,15 @@ self.addEventListener("activate", (e) => {
 });
 
 self.addEventListener("fetch", (e) => {
+  // Network-first for our own files, so updates show up right away.
+  // Falls back to cache only when offline.
   e.respondWith(
-    caches.match(e.request).then((cached) => cached || fetch(e.request))
+    fetch(e.request)
+      .then((response) => {
+        const copy = response.clone();
+        caches.open(CACHE).then((cache) => cache.put(e.request, copy));
+        return response;
+      })
+      .catch(() => caches.match(e.request))
   );
 });
