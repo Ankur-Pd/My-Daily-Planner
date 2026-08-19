@@ -1,9 +1,10 @@
 (() => {
   "use strict";
 
-  const STORE_KEY = "dayarc_tasks_v1";
-  const LOG_KEY = "dayarc_log_v1";
+  const STORE_KEY = "dayarc_tasks_v1";       // routine template
+  const LOG_KEY = "dayarc_log_v1";           // routine completion log
   const STREAK_KEY = "dayarc_streak_v1";
+  const EXTRA_KEY = "dayarc_extra_tasks_v1"; // one-off tasks (carry forward)
 
   const $ = (id) => document.getElementById(id);
   const timelineEl = $("timeline");
@@ -13,23 +14,39 @@
   const streakText = $("streakText");
   const nowMarker = $("nowMarker");
   const toastEl = $("toast");
+
+  const timelineWrap = $("timelineWrap");
+  const tasksWrap = $("tasksWrap");
+  const taskListEl = $("taskList");
+  const tasksEmptyState = $("tasksEmptyState");
+  const taskCountBadge = $("taskCountBadge");
+  const tabRoutine = $("tabRoutine");
+  const tabTasks = $("tabTasks");
+
   const sheet = $("taskSheet");
   const sheetBackdrop = $("sheetBackdrop");
   const sheetTitle = $("sheetTitle");
   const deleteBtn = $("deleteBtn");
 
+  const extraSheet = $("extraTaskSheet");
+  const extraSheetTitle = $("extraSheetTitle");
+  const eDeleteBtn = $("eDeleteBtn");
+
   const RING_CIRCUMFERENCE = 2 * Math.PI * 30;
 
-  let tasks = loadTasks();
+  let activeTab = "routine";
+  let tasks = loadJSON(STORE_KEY, []);       // routine
+  let extras = loadJSON(EXTRA_KEY, []);      // one-off tasks
   let editingId = null;
+  let editingExtraId = null;
   let reminderTimers = [];
 
-  function loadTasks() {
+  function loadJSON(key, fallback) {
     try {
-      const raw = localStorage.getItem(STORE_KEY);
-      return raw ? JSON.parse(raw) : [];
+      const raw = localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : fallback;
     } catch {
-      return [];
+      return fallback;
     }
   }
 
@@ -37,13 +54,12 @@
     localStorage.setItem(STORE_KEY, JSON.stringify(tasks));
   }
 
+  function saveExtras() {
+    localStorage.setItem(EXTRA_KEY, JSON.stringify(extras));
+  }
+
   function loadLog() {
-    try {
-      const raw = localStorage.getItem(LOG_KEY);
-      return raw ? JSON.parse(raw) : {};
-    } catch {
-      return {};
-    }
+    return loadJSON(LOG_KEY, {});
   }
 
   function saveLog(log) {
@@ -54,8 +70,26 @@
     return d.toISOString().slice(0, 10);
   }
 
+  function daysBetween(a, b) {
+    return Math.round((new Date(b) - new Date(a)) / 86400000);
+  }
+
   function uid() {
     return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  }
+
+  // ---------- Carry-forward: run once per load ----------
+
+  function rollForwardExtras() {
+    const key = todayKey();
+    let changed = false;
+    for (const t of extras) {
+      if (!t.done && t.activeDate < key) {
+        t.activeDate = key;
+        changed = true;
+      }
+    }
+    if (changed) saveExtras();
   }
 
   // ---------- Date header ----------
@@ -70,19 +104,29 @@
 
   function dotColor(hhmm) {
     const [h] = hhmm.split(":").map(Number);
-    if (h >= 5 && h < 11) return "#FF8966"; // dawn
-    if (h >= 11 && h < 17) return "#FFB84D"; // day
-    if (h >= 17 && h < 21) return "#6B5B95"; // dusk
-    return "#1B1B3A"; // night
+    if (h >= 5 && h < 11) return "#FF8966";
+    if (h >= 11 && h < 17) return "#FFB84D";
+    if (h >= 17 && h < 21) return "#6B5B95";
+    return "#1B1B3A";
   }
 
-  // ---------- Render ----------
+  // ---------- Tabs ----------
 
-  function render() {
-    const log = loadLog();
-    const key = todayKey();
+  function setTab(tab) {
+    activeTab = tab;
+    tabRoutine.classList.toggle("active", tab === "routine");
+    tabTasks.classList.toggle("active", tab === "tasks");
+    timelineWrap.hidden = tab !== "routine";
+    tasksWrap.hidden = tab !== "tasks";
+  }
+
+  tabRoutine.addEventListener("click", () => setTab("routine"));
+  tabTasks.addEventListener("click", () => setTab("tasks"));
+
+  // ---------- Render: Routine ----------
+
+  function renderRoutine(log, key) {
     const doneIds = new Set((log[key] && log[key].doneIds) || []);
-
     const sorted = [...tasks].sort((a, b) => a.time.localeCompare(b.time));
 
     timelineEl.innerHTML = "";
@@ -110,7 +154,7 @@
       check.textContent = "✓";
       check.addEventListener("click", (e) => {
         e.stopPropagation();
-        toggleDone(t.id);
+        toggleRoutineDone(t.id);
       });
       li.appendChild(check);
 
@@ -124,15 +168,14 @@
       meta.innerHTML = `<span>${t.points} pts</span>` + (t.reminder ? "<span>🔔</span>" : "");
       body.appendChild(title);
       body.appendChild(meta);
-      body.addEventListener("click", () => openEdit(t.id));
+      body.addEventListener("click", () => openEditRoutine(t.id));
       li.appendChild(body);
 
       timelineEl.appendChild(li);
     }
 
-    updateScore(sorted, doneIds);
-    updateStreakDisplay();
     positionNowMarker(sorted);
+    return { sorted, doneIds };
   }
 
   function formatTime(hhmm) {
@@ -142,23 +185,90 @@
     return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
   }
 
-  function updateScore(sorted, doneIds) {
-    const total = sorted.reduce((s, t) => s + Number(t.points), 0);
-    const earned = sorted.filter((t) => doneIds.has(t.id)).reduce((s, t) => s + Number(t.points), 0);
-    const pct = total === 0 ? 0 : Math.round((earned / total) * 100);
-    scorePct.textContent = pct + "%";
-    const offset = RING_CIRCUMFERENCE - (pct / 100) * RING_CIRCUMFERENCE;
-    ringFill.style.strokeDashoffset = offset;
+  // ---------- Render: Tasks (one-off, carry-forward) ----------
 
-    // Full completion → count streak for today
-    if (sorted.length > 0 && earned === total) {
-      markStreakDay();
+  function renderTasks(key) {
+    const active = extras
+      .filter((t) => t.done ? t.doneDate === key : t.activeDate === key)
+      .sort((a, b) => {
+        if (a.done !== b.done) return a.done ? 1 : -1;
+        return (a.time || "99:99").localeCompare(b.time || "99:99");
+      });
+
+    taskListEl.innerHTML = "";
+    tasksEmptyState.style.display = active.length === 0 ? "block" : "none";
+
+    const pendingCount = extras.filter((t) => !t.done).length;
+    taskCountBadge.hidden = pendingCount === 0;
+    taskCountBadge.textContent = String(pendingCount);
+
+    for (const t of active) {
+      const overdueDays = t.done ? 0 : daysBetween(t.createdDate, key);
+      const li = document.createElement("li");
+      li.className = "task-card" + (t.done ? " done" : "") + (overdueDays > 0 ? " overdue" : "");
+
+      const check = document.createElement("button");
+      check.type = "button";
+      check.className = "task-check";
+      check.setAttribute("aria-label", t.done ? "Mark not done" : "Mark done");
+      check.textContent = "✓";
+      check.addEventListener("click", (e) => {
+        e.stopPropagation();
+        toggleExtraDone(t.id);
+      });
+      li.appendChild(check);
+
+      const body = document.createElement("div");
+      body.className = "task-card-body";
+      const title = document.createElement("div");
+      title.className = "task-card-title";
+      title.textContent = t.title;
+      body.appendChild(title);
+
+      const meta = document.createElement("div");
+      meta.className = "task-card-meta";
+      meta.innerHTML = `<span class="chip">${t.points} pts</span>`;
+      if (t.time) meta.innerHTML += `<span class="chip">🔔 ${formatTime(t.time)}</span>`;
+      if (overdueDays > 0) meta.innerHTML += `<span class="chip carried">Carried ${overdueDays}d</span>`;
+      body.appendChild(meta);
+
+      body.addEventListener("click", () => openEditExtra(t.id));
+      li.appendChild(body);
+
+      taskListEl.appendChild(li);
     }
   }
 
-  function markStreakDay() {
-    const key = todayKey();
+  // ---------- Combined score / streak ----------
+
+  function updateScoreAndStreak() {
     const log = loadLog();
+    const key = todayKey();
+
+    const { sorted, doneIds } = renderRoutine(log, key);
+    renderTasks(key);
+
+    const routineTotal = sorted.reduce((s, t) => s + Number(t.points), 0);
+    const routineEarned = sorted.filter((t) => doneIds.has(t.id)).reduce((s, t) => s + Number(t.points), 0);
+
+    const todaysExtras = extras.filter((t) => t.done ? t.doneDate === key : t.activeDate === key);
+    const extraTotal = todaysExtras.reduce((s, t) => s + Number(t.points), 0);
+    const extraEarned = todaysExtras.filter((t) => t.done).reduce((s, t) => s + Number(t.points), 0);
+
+    const total = routineTotal + extraTotal;
+    const earned = routineEarned + extraEarned;
+    const pct = total === 0 ? 0 : Math.round((earned / total) * 100);
+
+    scorePct.textContent = pct + "%";
+    ringFill.style.strokeDashoffset = RING_CIRCUMFERENCE - (pct / 100) * RING_CIRCUMFERENCE;
+
+    if (total > 0 && earned === total) {
+      markStreakDay(log, key);
+    }
+    updateStreakDisplay();
+  }
+
+  function markStreakDay(log, key) {
     if (!log[key]) log[key] = { doneIds: [] };
     if (log[key].streakCounted) return;
     log[key].streakCounted = true;
@@ -181,6 +291,8 @@
     streakText.textContent = `${streak} day streak`;
   }
 
+  // ---------- Now marker (routine timeline) ----------
+
   function positionNowMarker(sorted) {
     if (sorted.length === 0) {
       nowMarker.style.display = "none";
@@ -194,13 +306,11 @@
       nowMarker.style.display = "none";
       return;
     }
-    const wrap = $("timelineWrap");
     const rows = timelineEl.querySelectorAll(".task-row");
     if (rows.length === 0) {
       nowMarker.style.display = "none";
       return;
     }
-    // Interpolate vertical position between rows by time
     let top = rows[0].offsetTop;
     for (let i = 0; i < sorted.length; i++) {
       const rowTop = rows[i].offsetTop + rows[i].offsetHeight / 2;
@@ -217,7 +327,6 @@
       }
     }
     nowMarker.style.display = "block";
-    nowMarker.style.top = top + wrap.offsetTop - wrap.scrollTop - 60 + "px";
     nowMarker.style.position = "absolute";
     nowMarker.style.top = (rows[0].parentElement.offsetTop + top) + "px";
   }
@@ -227,7 +336,9 @@
     return h * 60 + m;
   }
 
-  function toggleDone(id) {
+  // ---------- Toggle done ----------
+
+  function toggleRoutineDone(id) {
     const key = todayKey();
     const log = loadLog();
     if (!log[key]) log[key] = { doneIds: [] };
@@ -240,44 +351,70 @@
     }
     log[key].doneIds = [...set];
     saveLog(log);
-    render();
+    updateScoreAndStreak();
   }
 
-  // ---------- Sheet (add/edit) ----------
+  function toggleExtraDone(id) {
+    const key = todayKey();
+    const t = extras.find((x) => x.id === id);
+    if (!t) return;
+    if (t.done) {
+      t.done = false;
+      t.doneDate = null;
+      t.activeDate = key;
+    } else {
+      t.done = true;
+      t.doneDate = key;
+    }
+    saveExtras();
+    updateScoreAndStreak();
+  }
+
+  // ---------- Sheet: Routine add/edit ----------
 
   function openAdd() {
+    if (activeTab === "tasks") {
+      openAddExtra();
+    } else {
+      openAddRoutine();
+    }
+  }
+
+  function openAddRoutine() {
     editingId = null;
-    sheetTitle.textContent = "Add task";
+    sheetTitle.textContent = "Add routine task";
     deleteBtn.hidden = true;
     $("fTime").value = "";
     $("fTitle").value = "";
     $("fPoints").value = "10";
     $("fReminder").checked = false;
-    openSheet();
+    openSheetEl(sheet);
   }
 
-  function openEdit(id) {
+  function openEditRoutine(id) {
     const t = tasks.find((x) => x.id === id);
     if (!t) return;
     editingId = id;
-    sheetTitle.textContent = "Edit task";
+    sheetTitle.textContent = "Edit routine task";
     deleteBtn.hidden = false;
     $("fTime").value = t.time;
     $("fTitle").value = t.title;
     $("fPoints").value = t.points;
     $("fReminder").checked = !!t.reminder;
-    openSheet();
+    openSheetEl(sheet);
   }
 
-  function openSheet() {
+  function openSheetEl(el) {
     sheetBackdrop.classList.add("open");
-    sheet.classList.add("open");
-    setTimeout(() => $("fTime").focus(), 200);
+    el.classList.add("open");
+    const firstInput = el.querySelector("input");
+    setTimeout(() => firstInput && firstInput.focus(), 200);
   }
 
-  function closeSheet() {
+  function closeSheets() {
     sheetBackdrop.classList.remove("open");
     sheet.classList.remove("open");
+    extraSheet.classList.remove("open");
   }
 
   sheet.addEventListener("submit", (e) => {
@@ -297,22 +434,92 @@
       showToast("Task added");
     }
     saveTasks();
-    closeSheet();
-    render();
+    closeSheets();
+    updateScoreAndStreak();
     scheduleReminders();
   });
 
   deleteBtn.addEventListener("click", () => {
     tasks = tasks.filter((x) => x.id !== editingId);
     saveTasks();
-    closeSheet();
-    render();
+    closeSheets();
+    updateScoreAndStreak();
     scheduleReminders();
     showToast("Task deleted");
   });
 
-  $("cancelBtn").addEventListener("click", closeSheet);
-  sheetBackdrop.addEventListener("click", closeSheet);
+  $("cancelBtn").addEventListener("click", closeSheets);
+
+  // ---------- Sheet: Extra task add/edit ----------
+
+  function openAddExtra() {
+    editingExtraId = null;
+    extraSheetTitle.textContent = "Add task";
+    eDeleteBtn.hidden = true;
+    $("eTitle").value = "";
+    $("ePoints").value = "10";
+    $("eTime").value = "";
+    $("eReminder").checked = false;
+    openSheetEl(extraSheet);
+  }
+
+  function openEditExtra(id) {
+    const t = extras.find((x) => x.id === id);
+    if (!t) return;
+    editingExtraId = id;
+    extraSheetTitle.textContent = "Edit task";
+    eDeleteBtn.hidden = false;
+    $("eTitle").value = t.title;
+    $("ePoints").value = t.points;
+    $("eTime").value = t.time || "";
+    $("eReminder").checked = !!t.reminder;
+    openSheetEl(extraSheet);
+  }
+
+  extraSheet.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const title = $("eTitle").value.trim();
+    const points = Math.max(1, Math.min(100, Number($("ePoints").value) || 10));
+    const time = $("eTime").value;
+    const reminder = $("eReminder").checked && !!time;
+    if (!title) return;
+    const key = todayKey();
+
+    if (editingExtraId) {
+      const t = extras.find((x) => x.id === editingExtraId);
+      Object.assign(t, { title, points, time, reminder });
+      showToast("Task updated");
+    } else {
+      extras.push({
+        id: uid(),
+        title,
+        points,
+        time,
+        reminder,
+        createdDate: key,
+        activeDate: key,
+        done: false,
+        doneDate: null
+      });
+      showToast("Task added");
+    }
+    saveExtras();
+    closeSheets();
+    updateScoreAndStreak();
+    scheduleReminders();
+  });
+
+  eDeleteBtn.addEventListener("click", () => {
+    extras = extras.filter((x) => x.id !== editingExtraId);
+    saveExtras();
+    closeSheets();
+    updateScoreAndStreak();
+    scheduleReminders();
+    showToast("Task deleted");
+  });
+
+  $("eCancelBtn").addEventListener("click", closeSheets);
+  sheetBackdrop.addEventListener("click", closeSheets);
   $("addBtn").addEventListener("click", openAdd);
 
   // ---------- Toast ----------
@@ -337,18 +544,29 @@
     if (!("Notification" in window) || Notification.permission !== "granted") return;
 
     const now = new Date();
+    const key = todayKey();
+
     for (const t of tasks) {
       if (!t.reminder) continue;
-      const [h, m] = t.time.split(":").map(Number);
-      const target = new Date();
-      target.setHours(h, m, 0, 0);
-      const delay = target - now;
-      if (delay > 0 && delay < 24 * 60 * 60 * 1000) {
-        const id = setTimeout(() => {
-          new Notification("Day Arc", { body: t.title, icon: "icon-192.png" });
-        }, delay);
-        reminderTimers.push(id);
-      }
+      queueReminder(t.time, t.title, now);
+    }
+
+    for (const t of extras) {
+      if (!t.reminder || !t.time || t.done || t.activeDate !== key) continue;
+      queueReminder(t.time, t.title, now);
+    }
+  }
+
+  function queueReminder(hhmm, title, now) {
+    const [h, m] = hhmm.split(":").map(Number);
+    const target = new Date();
+    target.setHours(h, m, 0, 0);
+    const delay = target - now;
+    if (delay > 0 && delay < 24 * 60 * 60 * 1000) {
+      const id = setTimeout(() => {
+        new Notification("Day Arc", { body: title, icon: "icon-192.png" });
+      }, delay);
+      reminderTimers.push(id);
     }
   }
 
@@ -368,7 +586,8 @@
 
   function tick() {
     renderDate();
-    render();
+    rollForwardExtras();
+    updateScoreAndStreak();
   }
 
   if ("serviceWorker" in navigator) {
@@ -377,8 +596,12 @@
     });
   }
 
+  setTab("routine");
   tick();
   ensureNotificationPermission();
   setInterval(tick, 60000);
-  window.addEventListener("resize", () => positionNowMarker([...tasks].sort((a, b) => a.time.localeCompare(b.time))));
+  window.addEventListener("resize", () => {
+    const sorted = [...tasks].sort((a, b) => a.time.localeCompare(b.time));
+    positionNowMarker(sorted);
+  });
 })();

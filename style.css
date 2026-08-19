@@ -105,6 +105,49 @@ body {
 
 .streak-flame { font-size: 16px; }
 
+/* ---------- Tabs ---------- */
+
+.tabs {
+  display: flex;
+  gap: 6px;
+  padding: 16px 20px 4px;
+}
+
+.tab {
+  position: relative;
+  border: none;
+  background: transparent;
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 8px 16px;
+  border-radius: 999px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tab.active {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.tab-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--dawn);
+  color: var(--ink);
+  font-size: 10px;
+  font-weight: 700;
+}
+
 /* ---------- Timeline ---------- */
 
 .timeline-wrap {
@@ -242,6 +285,83 @@ body {
   display: none;
 }
 
+/* ---------- Tasks (non-routine) list ---------- */
+
+.tasks-wrap {
+  padding: 20px 20px 40px;
+  min-height: 200px;
+}
+
+.task-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.task-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  cursor: pointer;
+}
+
+.task-card.done {
+  opacity: 0.6;
+}
+
+.task-card.overdue {
+  border-color: var(--dawn);
+  box-shadow: 0 0 0 1px rgba(255, 137, 102, 0.25);
+}
+
+.task-card .task-check {
+  margin-top: 1px;
+}
+
+.task-card-body {
+  flex: 1;
+}
+
+.task-card-title {
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.task-card.done .task-card-title {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+
+.task-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.chip {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--paper);
+  color: var(--muted);
+  border: 1px solid var(--line);
+}
+
+.chip.carried {
+  background: rgba(255, 137, 102, 0.14);
+  color: #B85436;
+  border-color: rgba(255, 137, 102, 0.4);
+}
+
 /* ---------- FAB ---------- */
 
 .fab {
@@ -324,6 +444,12 @@ body {
 .sheet input:focus {
   outline: none;
   border-color: var(--dusk);
+}
+
+.optional-tag {
+  font-weight: 400;
+  color: var(--muted);
+  font-size: 11px;
 }
 
 .check-row {
